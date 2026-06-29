@@ -2,6 +2,23 @@ name: CI
 
 on:
   workflow_call:
+    inputs:
+      apt_packages:
+        description: Additional apt packages to install on Ubuntu
+        type: string
+        default: ""
+
+      check_args:
+        type: string
+        default: ""
+
+      clippy_args:
+        type: string
+        default: ""
+
+      test_args:
+        type: string
+        default: ""
 
 env:
   CARGO_TERM_COLOR: always
@@ -13,8 +30,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - run: cargo check
+      - uses: swatinem/rust-cache@v2
+      - run: cargo check ${{ inputs.check_args }}
 
   fmt:
     name: Formatting
@@ -34,14 +51,19 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
-      - uses: Swatinem/rust-cache@v2
-      - run: cargo clippy --all-targets -- -D warnings
+      - uses: swatinem/rust-cache@v2
+      - run: cargo clippy --all-targets -- -D warnings ${{ inputs.clippy_args }}
 
   test:
     name: Test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+      - name: Install Linux Dependencies
+        if: inputs.apt_packages != ''
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ${{ inputs.apt_packages }}
       - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - run: cargo test
+      - uses: swatinem/rust-cache@v2
+      - run: cargo test ${{ inputs.test_args }}
