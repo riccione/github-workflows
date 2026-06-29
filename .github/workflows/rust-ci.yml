@@ -24,15 +24,6 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  check:
-    name: Check
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: swatinem/rust-cache@v2
-      - run: cargo check ${{ inputs.check_args }}
-
   fmt:
     name: Formatting
     runs-on: ubuntu-latest
@@ -43,11 +34,30 @@ jobs:
           components: rustfmt
       - run: cargo fmt --all -- --check
 
+  check:
+    name: Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install Linux Dependencies
+        if: inputs.apt_packages != ''
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ${{ inputs.apt_packages }}
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: swatinem/rust-cache@v2
+      - run: cargo check ${{ inputs.check_args }}
+
   clippy:
     name: Clippy
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+      - name: Install Linux Dependencies
+        if: inputs.apt_packages != ''
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ${{ inputs.apt_packages }}
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
