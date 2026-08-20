@@ -152,6 +152,7 @@ jobs:
         run: |
           mkdir release-assets
           gh release download "${{ inputs.tag }}" \
+            --repo "${{ github.repository }}" \
             --dir release-assets
 
       - name: Generate SHA256SUMS
@@ -164,5 +165,6 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh release upload "${{ inputs.tag }}" \
+            --repo "${{ github.repository }}" \
             release-assets/SHA256SUMS \
             --clobber
