@@ -20,6 +20,11 @@ on:
         type: string
         default: ""
 
+      use_xvfb:
+        description: "Run tests inside an xvfb virtual display server"
+        type: boolean
+        default: false
+
 env:
   CARGO_TERM_COLOR: always
 
@@ -76,4 +81,10 @@ jobs:
           sudo apt-get install -y ${{ inputs.apt_packages }}
       - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
       - uses: swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
-      - run: cargo test ${{ inputs.test_args }}
+      - name: Run Tests
+        run: |
+          if [ "${{ inputs.use_xvfb }}" = "true" ]; then
+            xvfb-run cargo test ${{ inputs.test_args }}
+          else
+            cargo test ${{ inputs.test_args }}
+          fi
