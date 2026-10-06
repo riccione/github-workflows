@@ -143,7 +143,7 @@ jobs:
         if: matrix.os != 'windows-latest'
         run: |
           for bin in ${{ inputs.bin_names }}; do
-            strip target/${{ matrix.target }}/release/${bin}${matrix.ext}
+            strip target/${{ matrix.target }}/release/${bin}${{ matrix.ext }}
           done
 
       - name: Prepare UPX File List
