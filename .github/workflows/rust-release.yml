@@ -156,19 +156,35 @@ jobs:
             upx --best --lzma "target/${{ matrix.target }}/release/${bin}" || true
           done
 
+      - name: Prepare release assets
+        shell: bash
+        run: |
+          mkdir -p release-assets
+
+          for bin in ${{ inputs.bin_names }}; do
+            source="target/${{ matrix.target }}/release/${bin}${{ matrix.ext }}"
+            destination="release-assets/${bin}_${{ matrix.platform }}${{ matrix.ext }}"
+
+            if [[ ! -f "$source" ]]; then
+              echo "ERROR: Binary not found: $source"
+              exit 1
+            fi
+
+            cp "$source" "$destination"
+          done
+
       - name: Upload binaries to release
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           for bin in ${{ inputs.bin_names }}; do
-            asset="target/${{ matrix.target }}/release/${bin}${{ matrix.ext }}"
-            name="${bin}_${{ matrix.platform }}${{ matrix.ext }}"
+            asset="release-assets/${bin}_${{ matrix.platform }}${{ matrix.ext }}"
 
-            echo "Uploading ${asset} as ${name}"
+            echo "Uploading ${asset}"
 
             gh release upload "${{ inputs.tag }}" \
-              "${asset}#${name}" \
+              "${asset}" \
               --repo "${{ github.repository }}" \
               --clobber
           done
