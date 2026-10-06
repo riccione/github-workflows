@@ -172,6 +172,11 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          # Create the release draft/tag if it doesn't exist yet
+          gh release view "${{ inputs.tag }}" >/dev/null 2>&1 || \
+            gh release create "${{ inputs.tag }}" --title "${{ inputs.tag }}" --notes "Automated release build" --draft=false
+
+          # Upload binaries
           for bin in ${{ inputs.bin_names }}; do
             gh release upload "${{ inputs.tag }}" \
               "target/${{ matrix.target }}/release/${bin}${{ matrix.ext }}#${bin}_${{ matrix.platform }}${{ matrix.ext }}" \
