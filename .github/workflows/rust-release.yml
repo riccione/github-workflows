@@ -141,6 +141,7 @@ jobs:
 
       - name: Strip Symbols
         if: matrix.os != 'windows-latest'
+        shell: bash
         run: |
           for bin in ${{ inputs.bin_names }}; do
             strip target/${{ matrix.target }}/release/${bin}${{ matrix.ext }}
@@ -149,6 +150,7 @@ jobs:
       - name: Prepare UPX File List
         if: matrix.os == 'ubuntu-latest' && inputs.use_upx
         id: upx_files
+        shell: bash
         run: |
           FILE_LIST=""
           for bin in ${{ inputs.bin_names }}; do
@@ -165,6 +167,7 @@ jobs:
           args: --best --lzma
 
       - name: Upload binaries to release
+        shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
