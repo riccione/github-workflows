@@ -170,7 +170,7 @@ jobs:
         run: |
           for bin in ${{ inputs.bin_names }}; do
             gh release upload "${{ inputs.tag }}" \
-              "target/${{ matrix.target }}/release/${bin}${matrix.ext}#${bin}_${{ matrix.platform }}${matrix.ext}" \
+              "target/${{ matrix.target }}/release/${bin}${{ matrix.ext }}#${bin}_${{ matrix.platform }}${{ matrix.ext }}" \
               --clobber
           done
 
