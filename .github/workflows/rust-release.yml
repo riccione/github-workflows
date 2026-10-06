@@ -30,7 +30,7 @@ permissions:
   contents: read
 
 jobs:
-  # Create the release draft/tag upfront before matrix builds start
+  # Create the release before matrix builds start
   create-release:
     name: Create GitHub Release
     runs-on: ubuntu-latest
@@ -147,17 +147,6 @@ jobs:
             strip target/${{ matrix.target }}/release/${bin}${{ matrix.ext }}
           done
 
-      - name: Prepare UPX File List
-        if: matrix.os == 'ubuntu-latest' && inputs.use_upx
-        id: upx_files
-        shell: bash
-        run: |
-          echo "files<<EOF" >> $GITHUB_OUTPUT
-          for bin in ${{ inputs.bin_names }}; do
-            echo "target/${{ matrix.target }}/release/${bin}" >> $GITHUB_OUTPUT
-          done
-          echo "EOF" >> $GITHUB_OUTPUT
-
       - name: Run UPX
         if: matrix.os == 'ubuntu-latest' && inputs.use_upx
         shell: bash
@@ -172,16 +161,27 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # Create the release draft/tag if it doesn't exist yet
-          gh release view "${{ inputs.tag }}" >/dev/null 2>&1 || \
-            gh release create "${{ inputs.tag }}" --title "${{ inputs.tag }}" --notes "Automated release build" --draft=false
-
-          # Upload binaries
           for bin in ${{ inputs.bin_names }}; do
+            asset="target/${{ matrix.target }}/release/${bin}${{ matrix.ext }}"
+            name="${bin}_${{ matrix.platform }}${{ matrix.ext }}"
+
+            echo "Uploading ${asset} as ${name}"
+
             gh release upload "${{ inputs.tag }}" \
-              "target/${{ matrix.target }}/release/${bin}${{ matrix.ext }}#${bin}_${{ matrix.platform }}${{ matrix.ext }}" \
+              "${asset}#${name}" \
+              --repo "${{ github.repository }}" \
               --clobber
           done
+
+      - name: Verify release assets
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release view "${{ inputs.tag }}" \
+            --repo "${{ github.repository }}" \
+            --json tagName,isPrerelease,isDraft,assets \
+            --jq '.assets[] | .name'
 
   # Generate checksums after all assets are uploaded
   checksums:
@@ -217,3 +217,12 @@ jobs:
             --repo "${{ github.repository }}" \
             release-assets/SHA256SUMS \
             --clobber
+
+      - name: Verify final release assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release view "${{ inputs.tag }}" \
+            --repo "${{ github.repository }}" \
+            --json tagName,isPrerelease,isDraft,assets \
+            --jq '.assets[] | .name'
