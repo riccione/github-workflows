@@ -9,8 +9,8 @@ on:
         type: string
         default: ""
 
-      bin_name:
-        description: Name of the compiled binary
+      bin_names:
+        description: "Space-separated list of compiled binaries (e.g. 'nomforge-cli nomforge-gui')"
         required: true
         type: string
 
@@ -30,14 +30,59 @@ permissions:
   contents: read
 
 jobs:
+  # Create the release before matrix builds start
+  create-release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+        with:
+          fetch-depth: 0
+
+      - name: Set Changelog Base Reference
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          LATEST_RELEASE=$(gh release view --json tagName --template '{{.tagName}}' 2>/dev/null || echo "")
+          if [ -n "$LATEST_RELEASE" ]; then
+            echo "CHANGELOG_BASE=$LATEST_RELEASE" >> $GITHUB_ENV
+          else
+            echo "CHANGELOG_BASE=$(git rev-list --max-parents=0 HEAD)" >> $GITHUB_ENV
+          fi
+
+      - name: Generate Changelog
+        id: changelog
+        uses: jaywcjlove/changelog-generator@1009fc1683464607a9b4329d95742507f3207055  # main
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          base-ref: ${{ env.CHANGELOG_BASE }}
+
+      - name: Ensure GitHub Release Exists
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if ! gh release view "${{ inputs.tag }}" >/dev/null 2>&1; then
+            PRERELEASE_FLAG=""
+            if [[ "${{ github.ref }}" != refs/tags/* ]]; then
+              PRERELEASE_FLAG="--prerelease"
+            fi
+
+            gh release create "${{ inputs.tag }}" \
+              --title "${{ inputs.tag }}" \
+              --notes "${{ steps.changelog.outputs.changelog }}" \
+              $PRERELEASE_FLAG
+          fi
+
+  # Build across matrix platforms and upload assets
   build-release:
     name: ${{ matrix.build }}
+    needs: create-release
     runs-on: ${{ matrix.os }}
     permissions:
       contents: write
-    # SINGLE SOURCE OF TRUTH: Define your binary name here
-    env:
-      BIN_NAME: ${{ inputs.bin_name }}
     strategy:
       fail-fast: false
       matrix:
@@ -65,12 +110,12 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
         with:
           fetch-depth: 0
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
+        uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c  # stable
         with:
           targets: ${{ matrix.target }}
 
@@ -81,11 +126,10 @@ jobs:
           rustc --print target-libdir --target ${{ matrix.target }}
 
       - name: Rust Cache
-        uses: swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        uses: swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6  # v2
         with:
           key: ${{ matrix.target }}
 
-      # --- Ubuntu-only system dependencies ---
       - name: Install Linux Dependencies
         if: matrix.os == 'ubuntu-latest' && inputs.apt_packages != ''
         run: |
@@ -97,50 +141,65 @@ jobs:
 
       - name: Strip Symbols
         if: matrix.os != 'windows-latest'
-        run: strip target/${{ matrix.target }}/release/${{ env.BIN_NAME }}
+        shell: bash
+        run: |
+          for bin in ${{ inputs.bin_names }}; do
+            strip target/${{ matrix.target }}/release/${bin}${{ matrix.ext }}
+          done
 
       - name: Run UPX
         if: matrix.os == 'ubuntu-latest' && inputs.use_upx
-        uses: crazy-max/ghaction-upx@c83f378efc804f828e988debb88ed6116feb2368 # v4
-        with:
-          version: latest
-          files: target/${{ matrix.target }}/release/${{ env.BIN_NAME }}
-          args: --best --lzma
+        shell: bash
+        run: |
+          sudo apt-get update && sudo apt-get install -y upx
+          for bin in ${{ inputs.bin_names }}; do
+            upx --best --lzma "target/${{ matrix.target }}/release/${bin}" || true
+          done
 
-      - name: Set Changelog Base Reference
-        if: matrix.os == 'ubuntu-latest'
+      - name: Prepare release assets
+        shell: bash
+        run: |
+          mkdir -p release-assets
+
+          for bin in ${{ inputs.bin_names }}; do
+            source="target/${{ matrix.target }}/release/${bin}${{ matrix.ext }}"
+            destination="release-assets/${bin}_${{ matrix.platform }}${{ matrix.ext }}"
+
+            if [[ ! -f "$source" ]]; then
+              echo "ERROR: Binary not found: $source"
+              exit 1
+            fi
+
+            cp "$source" "$destination"
+          done
+
+      - name: Upload binaries to release
+        shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # Try to find the latest production release tag via GitHub CLI
-          LATEST_RELEASE=$(gh release view --json tagName --template '{{.tagName}}' 2>/dev/null || echo "")
+          for bin in ${{ inputs.bin_names }}; do
+            asset="release-assets/${bin}_${{ matrix.platform }}${{ matrix.ext }}"
 
-          if [ -n "$LATEST_RELEASE" ]; then
-            echo "CHANGELOG_BASE=$LATEST_RELEASE" >> $GITHUB_ENV
-          else
-            # Fallback to the root commit hash of your repository if no release exists
-            echo "CHANGELOG_BASE=$(git rev-list --max-parents=0 HEAD)" >> $GITHUB_ENV
-          fi
+            echo "Uploading ${asset}"
 
-      - name: Generate Changelog
-        id: changelog
-        if: matrix.os == 'ubuntu-latest'
-        uses: jaywcjlove/changelog-generator@1009fc1683464607a9b4329d95742507f3207055 # main
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          base-ref: ${{ env.CHANGELOG_BASE }}
+            gh release upload "${{ inputs.tag }}" \
+              "${asset}" \
+              --repo "${{ github.repository }}" \
+              --clobber
+          done
 
-      - name: Upload binaries to release
-        uses: svenstaro/upload-release-action@29e53e917877a24fad85510ded594ab3c9ca12de # v2
-        with:
-          repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: target/${{ matrix.target }}/release/${{ env.BIN_NAME }}${{ matrix.ext }}
-          asset_name: ${{ env.BIN_NAME }}_${{ matrix.platform }}${{ matrix.ext }}
-          tag: ${{ inputs.tag }}
-          overwrite: true
-          prerelease: ${{ !startsWith(github.ref, 'refs/tags/') }}
-          body: ${{ matrix.os == 'ubuntu-latest' && steps.changelog.outputs.changelog || null }}
+      - name: Verify release assets
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release view "${{ inputs.tag }}" \
+            --repo "${{ github.repository }}" \
+            --json tagName,isPrerelease,isDraft,assets \
+            --jq '.assets[] | .name'
 
+  # Generate checksums after all assets are uploaded
   checksums:
     name: Generate SHA-256 checksums
     needs: build-release
@@ -150,7 +209,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
 
       - name: Download release assets
         env:
@@ -174,3 +233,12 @@ jobs:
             --repo "${{ github.repository }}" \
             release-assets/SHA256SUMS \
             --clobber
+
+      - name: Verify final release assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release view "${{ inputs.tag }}" \
+            --repo "${{ github.repository }}" \
+            --json tagName,isPrerelease,isDraft,assets \
+            --jq '.assets[] | .name'
