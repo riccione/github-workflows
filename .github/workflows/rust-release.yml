@@ -126,6 +126,10 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
+      - name: Ensure target is installed
+        shell: bash
+        run: rustup target add ${{ matrix.target }}
+
       - name: Verify Rust target
         run: |
           rustc --version
