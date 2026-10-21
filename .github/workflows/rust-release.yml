@@ -16,7 +16,7 @@ on:
 
       use_upx:
         type: boolean
-        default: true
+        default: false
 
       cargo_args:
         type: string
@@ -87,10 +87,17 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # Standard glibc build
           - build: linux-x86_64
             os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             platform: linux-x86_64
+            ext: ""
+          # Static musl build
+          - build: linux-musl-x86_64
+            os: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            platform: linux-musl-x86_64
             ext: ""
           - build: windows-x86_64
             os: windows-latest
@@ -131,10 +138,19 @@ jobs:
           key: ${{ matrix.target }}
 
       - name: Install Linux Dependencies
-        if: matrix.os == 'ubuntu-latest' && inputs.apt_packages != ''
+        if: matrix.os == 'ubuntu-latest'
         run: |
           sudo apt-get update
-          sudo apt-get install -y ${{ inputs.apt_packages }}
+
+          # Install musl-tools only if the target contains 'musl'
+          if [[ "${{ matrix.target }}" == *"musl"* ]]; then
+            sudo apt-get install -y musl-tools
+          fi
+
+          # Install any custom packages passed in via inputs
+          if [[ -n "${{ inputs.apt_packages }}" ]]; then
+            sudo apt-get install -y ${{ inputs.apt_packages }}
+          fi
 
       - name: Build
         run: cargo build --release --target ${{ matrix.target }} ${{ inputs.cargo_args }}
@@ -145,6 +161,19 @@ jobs:
         run: |
           for bin in ${{ inputs.bin_names }}; do
             strip target/${{ matrix.target }}/release/${bin}${{ matrix.ext }}
+          done
+
+      - name: Verify musl binary is static
+        if: matrix.target == 'x86_64-unknown-linux-musl'
+        shell: bash
+        run: |
+          for bin in ${{ inputs.bin_names }}; do
+            if ldd target/${{ matrix.target }}/release/${bin} 2>&1 | grep -q "not a dynamic executable"; then
+              echo "SUCCESS: $bin is statically linked."
+            else
+              echo "ERROR: $bin is dynamically linked! musl build failed."
+              exit 1
+            fi
           done
 
       - name: Run UPX
