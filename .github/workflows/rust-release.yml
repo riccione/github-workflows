@@ -172,11 +172,15 @@ jobs:
         shell: bash
         run: |
           for bin in ${{ inputs.bin_names }}; do
-            if ldd target/${{ matrix.target }}/release/${bin} 2>&1 | grep -q "not a dynamic executable"; then
-              echo "SUCCESS: $bin is statically linked."
-            else
+            FILE_INFO=$(file target/${{ matrix.target }}/release/${bin})
+            echo "Info for $bin: $FILE_INFO"
+
+            # Check if 'dynamically linked' is present in the output
+            if echo "$FILE_INFO" | grep -q "dynamically linked"; then
               echo "ERROR: $bin is dynamically linked! musl build failed."
               exit 1
+            else
+              echo "SUCCESS: $bin is statically linked."
             fi
           done
 
