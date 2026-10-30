@@ -26,6 +26,11 @@ on:
         required: true
         type: string
 
+      build_musl:
+        description: Build Linux MUSL target
+        type: boolean
+        default: false
+
 permissions:
   contents: read
 
@@ -76,44 +81,75 @@ jobs:
               $PRERELEASE_FLAG
           fi
 
+  prepare-matrix:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      - name: Generate build matrix
+        id: set-matrix
+        env:
+          BUILD_MUSL: ${{ inputs.build_musl }}
+        run: |
+          matrix='[
+            {
+              "build": "linux-x86_64",
+              "os": "ubuntu-latest",
+              "target": "x86_64-unknown-linux-gnu",
+              "platform": "linux-x86_64",
+              "ext": ""
+            },
+            {
+              "build": "windows-x86_64",
+              "os": "windows-latest",
+              "target": "x86_64-pc-windows-msvc",
+              "platform": "win-x86_64",
+              "ext": ".exe"
+            },
+            {
+              "build": "macos-x86_64",
+              "os": "macos-15-intel",
+              "target": "x86_64-apple-darwin",
+              "platform": "macos-x86_64",
+              "ext": ""
+            },
+            {
+              "build": "macos-arm64",
+              "os": "macos-latest",
+              "target": "aarch64-apple-darwin",
+              "platform": "macos-arm64",
+              "ext": ""
+            }
+          ]'
+
+          if [[ "$BUILD_MUSL" == "true" ]]; then
+            matrix=$(jq '. + [{
+              "build": "linux-musl-x86_64",
+              "os": "ubuntu-latest",
+              "target": "x86_64-unknown-linux-musl",
+              "platform": "linux-musl-x86_64",
+              "ext": ""
+            }]' <<< "$matrix")
+          fi
+
+          matrix=$(jq -c '.' <<< "$matrix")
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+
   # Build across matrix platforms and upload assets
   build-release:
-    name: ${{ matrix.build }}
-    needs: create-release
-    runs-on: ${{ matrix.os }}
+    needs:
+      - create-release
+      - prepare-matrix
+
     permissions:
       contents: write
+
     strategy:
       fail-fast: false
       matrix:
-        include:
-          # Standard glibc build
-          - build: linux-x86_64
-            os: ubuntu-latest
-            target: x86_64-unknown-linux-gnu
-            platform: linux-x86_64
-            ext: ""
-          # Static musl build
-          - build: linux-musl-x86_64
-            os: ubuntu-latest
-            target: x86_64-unknown-linux-musl
-            platform: linux-musl-x86_64
-            ext: ""
-          - build: windows-x86_64
-            os: windows-latest
-            target: x86_64-pc-windows-msvc
-            platform: win-x86_64
-            ext: ".exe"
-          - build: macos-x86_64
-            os: macos-15-intel
-            target: x86_64-apple-darwin
-            platform: macos-x86_64
-            ext: ""
-          - build: macos-arm64
-            os: macos-latest
-            target: aarch64-apple-darwin
-            platform: macos-arm64
-            ext: ""
+        include: ${{ fromJSON(needs.prepare-matrix.outputs.matrix) }}
+
+    runs-on: ${{ matrix.os }}
 
     steps:
       - name: Checkout repository
