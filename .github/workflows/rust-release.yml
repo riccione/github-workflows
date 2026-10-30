@@ -26,6 +26,11 @@ on:
         required: true
         type: string
 
+      build_musl:
+        description: Build Linux MUSL target
+        type: boolean
+        default: false
+
 permissions:
   contents: read
 
@@ -76,44 +81,75 @@ jobs:
               $PRERELEASE_FLAG
           fi
 
+  prepare-matrix:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      - name: Generate build matrix
+        id: set-matrix
+        env:
+          BUILD_MUSL: ${{ inputs.build_musl }}
+        run: |
+          matrix='[
+            {
+              "build": "linux-x86_64",
+              "os": "ubuntu-latest",
+              "target": "x86_64-unknown-linux-gnu",
+              "platform": "linux-x86_64",
+              "ext": ""
+            },
+            {
+              "build": "windows-x86_64",
+              "os": "windows-latest",
+              "target": "x86_64-pc-windows-msvc",
+              "platform": "win-x86_64",
+              "ext": ".exe"
+            },
+            {
+              "build": "macos-x86_64",
+              "os": "macos-15-intel",
+              "target": "x86_64-apple-darwin",
+              "platform": "macos-x86_64",
+              "ext": ""
+            },
+            {
+              "build": "macos-arm64",
+              "os": "macos-latest",
+              "target": "aarch64-apple-darwin",
+              "platform": "macos-arm64",
+              "ext": ""
+            }
+          ]'
+
+          if [[ "$BUILD_MUSL" == "true" ]]; then
+            matrix=$(jq '. + [{
+              "build": "linux-musl-x86_64",
+              "os": "ubuntu-latest",
+              "target": "x86_64-unknown-linux-musl",
+              "platform": "linux-musl-x86_64",
+              "ext": ""
+            }]' <<< "$matrix")
+          fi
+
+          matrix=$(jq -c '.' <<< "$matrix")
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+
   # Build across matrix platforms and upload assets
   build-release:
-    name: ${{ matrix.build }}
-    needs: create-release
-    runs-on: ${{ matrix.os }}
+    needs:
+      - create-release
+      - prepare-matrix
+
     permissions:
       contents: write
+
     strategy:
       fail-fast: false
       matrix:
-        include:
-          # Standard glibc build
-          - build: linux-x86_64
-            os: ubuntu-latest
-            target: x86_64-unknown-linux-gnu
-            platform: linux-x86_64
-            ext: ""
-          # Static musl build
-          - build: linux-musl-x86_64
-            os: ubuntu-latest
-            target: x86_64-unknown-linux-musl
-            platform: linux-musl-x86_64
-            ext: ""
-          - build: windows-x86_64
-            os: windows-latest
-            target: x86_64-pc-windows-msvc
-            platform: win-x86_64
-            ext: ".exe"
-          - build: macos-x86_64
-            os: macos-15-intel
-            target: x86_64-apple-darwin
-            platform: macos-x86_64
-            ext: ""
-          - build: macos-arm64
-            os: macos-latest
-            target: aarch64-apple-darwin
-            platform: macos-arm64
-            ext: ""
+        include: ${{ fromJSON(needs.prepare-matrix.outputs.matrix) }}
+
+    runs-on: ${{ matrix.os }}
 
     steps:
       - name: Checkout repository
@@ -236,17 +272,21 @@ jobs:
             --json tagName,isPrerelease,isDraft,assets \
             --jq '.assets[] | .name'
 
-  # Generate checksums after all assets are uploaded
+  # Generate checksums and sign the manifest
   checksums:
-    name: Generate SHA-256 checksums
+    name: Generate and Sign SHA-256 Checksums
     needs: build-release
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      id-token: write
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
 
       - name: Download release assets
         env:
@@ -260,15 +300,37 @@ jobs:
       - name: Generate SHA256SUMS
         working-directory: release-assets
         run: |
-          sha256sum * > SHA256SUMS
+          find . -maxdepth 1 -type f \
+            ! -name 'SHA256SUMS*' \
+            -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS
 
-      - name: Upload SHA256SUMS
+      - name: Sign SHA256SUMS
+        working-directory: release-assets
+        run: |
+          cosign sign-blob \
+            --yes \
+            --bundle SHA256SUMS.sigstore.json \
+            SHA256SUMS
+
+      - name: Verify signature
+        working-directory: release-assets
+        env:
+          REPOSITORY: ${{ github.repository }}
+          REF: ${{ github.ref }}
+        run: |
+          cosign verify-blob SHA256SUMS \
+            --bundle SHA256SUMS.sigstore.json \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+            --certificate-identity-regexp '^https://github\.com/riccione/github-workflows/\.github/workflows/rust-release\.yml@.*$'
+
+      - name: Upload checksums and signature
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh release upload "${{ inputs.tag }}" \
             --repo "${{ github.repository }}" \
             release-assets/SHA256SUMS \
+            release-assets/SHA256SUMS.sigstore.json \
             --clobber
 
       - name: Verify final release assets
