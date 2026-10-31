@@ -205,6 +205,13 @@ jobs:
             sudo apt-get install -y ${{ inputs.apt_packages }}
           fi
 
+      - name: Check PipeWire development headers
+        run: |
+          pkg-config --modversion libspa-0.2
+          pkg-config --modversion libpipewire-0.3
+          pkg-config --cflags libspa-0.2
+          dpkg-query -W libspa-0.2-dev libpipewire-0.3-dev
+
       - name: Build
         run: cargo build --release --target ${{ matrix.target }} ${{ inputs.cargo_args }}
 
