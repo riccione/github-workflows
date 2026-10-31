@@ -8,7 +8,7 @@ on:
         description: Ubuntu runner for Linux GNU builds
         type: string
         required: false
-        default: ubuntu-22.04
+        default: ubuntu-24.04
 
       apt_packages:
         description: Additional apt packages to install on Ubuntu
@@ -204,13 +204,6 @@ jobs:
           if [[ -n "${{ inputs.apt_packages }}" ]]; then
             sudo apt-get install -y ${{ inputs.apt_packages }}
           fi
-
-      - name: Check PipeWire development headers
-        run: |
-          pkg-config --modversion libspa-0.2
-          pkg-config --modversion libpipewire-0.3
-          pkg-config --cflags libspa-0.2
-          dpkg-query -W libspa-0.2-dev libpipewire-0.3-dev
 
       - name: Build
         run: cargo build --release --target ${{ matrix.target }} ${{ inputs.cargo_args }}
