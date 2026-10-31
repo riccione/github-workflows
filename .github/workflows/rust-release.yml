@@ -4,6 +4,12 @@ name: Release
 on:
   workflow_call:
     inputs:
+      linux_gnu_runner:
+        description: Ubuntu runner for Linux GNU builds
+        type: string
+        required: false
+        default: ubuntu-24.04
+
       apt_packages:
         description: Additional apt packages to install on Ubuntu
         type: string
@@ -82,6 +88,8 @@ jobs:
           fi
 
   prepare-matrix:
+    env:
+      LINUX_GNU_RUNNER: ${{ inputs.linux_gnu_runner }}
     runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
@@ -132,6 +140,11 @@ jobs:
             }]' <<< "$matrix")
           fi
 
+          matrix=$(jq --arg runner "$LINUX_GNU_RUNNER" \
+            'map(if .target == "x86_64-unknown-linux-gnu"
+                 then .os = $runner
+                 else .
+                 end)' <<< "$matrix")
           matrix=$(jq -c '.' <<< "$matrix")
           echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
 
@@ -178,7 +191,7 @@ jobs:
           key: ${{ matrix.target }}
 
       - name: Install Linux Dependencies
-        if: matrix.os == 'ubuntu-latest'
+        if: startsWith(matrix.os, 'ubuntu-')
         run: |
           sudo apt-get update
 
@@ -221,7 +234,7 @@ jobs:
           done
 
       - name: Run UPX
-        if: matrix.os == 'ubuntu-latest' && inputs.use_upx
+        if: startsWith(matrix.os, 'ubuntu-') && inputs.use_upx
         shell: bash
         run: |
           sudo apt-get update && sudo apt-get install -y upx
