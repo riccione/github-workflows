@@ -1,5 +1,4 @@
 ---
----
 name: Sign Release Checksums
 description: Downloads release assets, generates SHA-256 checksums, signs and verifies the manifest, and uploads it to GitHub Releases
 
