@@ -281,7 +281,7 @@ jobs:
 
     steps:
       - name: Sign Release Checksums
-        uses: riccione/github-workflows/.github/actions/sign-release-checksums@ci/composite-sign-release-checksums
+        uses: riccione/github-workflows/.github/actions/sign-release-checksums@main
         with:
           tag: ${{ inputs.tag }}
           repository: ${{ github.repository }}
