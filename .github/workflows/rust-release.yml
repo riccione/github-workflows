@@ -280,62 +280,9 @@ jobs:
       id-token: write
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-
-      - name: Install Cosign
-        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
-
-      - name: Download release assets
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          mkdir release-assets
-          gh release download "${{ inputs.tag }}" \
-            --repo "${{ github.repository }}" \
-            --dir release-assets
-
-      - name: Generate SHA256SUMS
-        working-directory: release-assets
-        run: |
-          find . -maxdepth 1 -type f \
-            ! -name 'SHA256SUMS*' \
-            -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS
-
-      - name: Sign SHA256SUMS
-        working-directory: release-assets
-        run: |
-          cosign sign-blob \
-            --yes \
-            --bundle SHA256SUMS.sigstore.json \
-            SHA256SUMS
-
-      - name: Verify signature
-        working-directory: release-assets
-        env:
-          REPOSITORY: ${{ github.repository }}
-          REF: ${{ github.ref }}
-        run: |
-          cosign verify-blob SHA256SUMS \
-            --bundle SHA256SUMS.sigstore.json \
-            --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-            --certificate-identity-regexp '^https://github\.com/riccione/github-workflows/\.github/workflows/rust-release\.yml@.*$'
-
-      - name: Upload checksums and signature
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          gh release upload "${{ inputs.tag }}" \
-            --repo "${{ github.repository }}" \
-            release-assets/SHA256SUMS \
-            release-assets/SHA256SUMS.sigstore.json \
-            --clobber
-
-      - name: Verify final release assets
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          gh release view "${{ inputs.tag }}" \
-            --repo "${{ github.repository }}" \
-            --json tagName,isPrerelease,isDraft,assets \
-            --jq '.assets[] | .name'
+      - name: Sign Release Checksums
+        uses: riccione/github-workflows/.github/actions/sign-release-checksums@main
+        with:
+          tag: ${{ inputs.tag }}
+          repository: ${{ github.repository }}
+          token: ${{ secrets.GITHUB_TOKEN }}
