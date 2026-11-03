@@ -1,0 +1,30 @@
+---
+name: 'Setup Rust'
+description: 'Installs a Rust toolchain with a target, verifies it, and configures caching'
+
+inputs:
+  target:
+    description: 'Rust target triple (e.g. x86_64-unknown-linux-musl)'
+    required: true
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c  # stable
+      with:
+        targets: ${{ inputs.target }}
+
+    - name: Verify Rust target
+      shell: bash
+      env:
+        RUST_TARGET: ${{ inputs.target }}
+      run: |
+        rustc --version
+        rustup target list --installed
+        rustc --print target-libdir --target "$RUST_TARGET"
+
+    - name: Rust Cache
+      uses: swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6  # v2
+      with:
+        key: ${{ inputs.target }}
